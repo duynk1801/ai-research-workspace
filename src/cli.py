@@ -1,16 +1,22 @@
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import typer
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Confirm
+from rich.live import Live
+from rich.spinner import Spinner
 
 from src.db.schema import init_db
 from src.modules.knowledge import KnowledgeBase
-from src.modules.clarification import analyze_input, generate_questions, synthesize_requirements
+from src.modules.clarification import (
+    quick_search, analyze_results, get_problem_definition_questions,
+    format_problem_definition, is_problem_defined
+)
 from src.modules.search import multi_search, fetch_github_readme
-from src.modules.extractor import extract_from_github, extract_from_arxiv, query_kb, generate_ideas
+from src.modules.extractor import extract_from_github, extract_from_arxiv, extract_from_web, query_kb, generate_ideas
 
 app = typer.Typer(help="AI Research Workspace - Research & Learn")
 kb_app = typer.Typer(help="Knowledge Base commands")
@@ -22,26 +28,27 @@ kb = KnowledgeBase()
 
 def detect_topic_type(topic: str, requirements: dict = None) -> dict:
     topic_lower = topic.lower()
-    summary = (requirements or {}).get("summary", "").lower()
-    keywords = (requirements or {}).get("search_keywords", [])
-    keywords_str = " ".join(keywords).lower() if keywords else ""
-    combined = f"{topic_lower} {summary} {keywords_str}"
+    problem_def = (requirements or {}).get("problem_definition", {})
+    scope = problem_def.get("scope", "").lower()
+    what = problem_def.get("what", "").lower()
+    combined = f"{topic_lower} {scope} {what}"
 
-    is_code = any(w in combined for w in ["code", "github", "repo", "library", "framework", "tool", "cli", "api", "sdk", "package", "pip", "npm", "build", "develop", "implement", "app", "web", "server", "code python", "code javascript", "repo git"])
-    is_paper = any(w in combined for w in ["paper", "research", "study", "academic", "arxiv", "survey", "review", "theory", "algorithm", "model", "dataset", "benchmark", "scientific"])
-    is_news = any(w in combined for w in ["news", "trending", "latest", "new", "update", "release", "announcement", "2024", "2025", "2026"])
+    is_code = any(w in combined for w in ["code", "github", "repo", "library", "framework", "tool", "cli", "api", "sdk", "package", "pip", "npm", "build", "develop", "implement", "app", "web", "server", "python", "javascript", "tối ưu", "optimize", "fix", "bug"])
+    is_paper = any(w in combined for w in ["paper", "research", "study", "academic", "arxiv", "survey", "review", "theory", "algorithm", "model", "dataset", "benchmark", "scientific", "review", "so sánh", "compare"])
+    is_product = any(w in combined for w in ["phone", "điện thoại", "laptop", "product", "device", "review", "spec", "feature", "tiger", "galaxy", "iphone"])
 
-    if not is_code and not is_paper:
-        is_code = True
-        is_paper = True
+    if is_product:
+        sources = ["web", "stackoverflow"]
+    elif is_code and is_paper:
+        sources = ["github", "arxiv", "web"]
+    elif is_code:
+        sources = ["github", "web", "stackoverflow"]
+    elif is_paper:
+        sources = ["arxiv", "web"]
+    else:
+        sources = ["github", "arxiv", "web"]
 
-    sources = []
-    if is_code:
-        sources.append("github")
-    if is_paper:
-        sources.append("arxiv")
-
-    return {"sources": sources, "is_code": is_code, "is_paper": is_paper}
+    return {"sources": sources, "is_code": is_code, "is_paper": is_paper, "is_product": is_product}
 
 
 @app.command()
@@ -51,75 +58,76 @@ def research(topic: str = typer.Argument(..., help="Research topic or idea")):
     console.print(f"[bold]Topic:[/bold] {topic}\n")
 
     start_time = time.time()
-    conversation = [{"role": "user", "content": topic}]
 
-    while True:
-        console.print("[dim]Analyzing your input...[/dim]")
-        analysis = analyze_input(topic)
+    stage_start = time.time()
+    console.print(f"[bold cyan]📥 Stage 0: Quick Search & Problem Definition[/bold cyan]")
+    console.print(f"[dim]Searching '{topic}' to see what's out there...[/dim]")
 
-        missing = analysis.get("missing", []) if isinstance(analysis, dict) else []
-        questions_list = analysis.get("suggested_questions", []) if isinstance(analysis, dict) else []
+    quick_results = quick_search(topic)
+    analysis = analyze_results(topic, quick_results)
 
-        if not missing or not questions_list:
+    console.print(f"\n[bold]Found {len(quick_results)} results:[/bold]")
+    for i, r in enumerate(quick_results, 1):
+        stars = f" ⭐{r['stars']}" if r.get("stars") is not None else ""
+        console.print(f"   {i}. [{r['source']}] [bold]{r['title'][:60]}[/bold]{stars}")
+        if r["description"]:
+            console.print(f"      {r['description'][:100]}")
+
+    console.print(f"\n   [dim]Languages: {', '.join(analysis['top_languages']) or 'N/A'}[/dim]")
+    if analysis["related_topics"]:
+        console.print(f"   [dim]Topics: {', '.join(analysis['related_topics'][:5])}[/dim]")
+
+    console.print(f"\n[bold]📋 Problem Definition (5 factors):[/bold]")
+    console.print(f"[dim]Answer these to define your problem clearly before deep search.[/dim]")
+
+    questions = get_problem_definition_questions(topic, analysis)
+    answers = {}
+
+    for q in questions:
+        if q["context"]:
+            console.print(f"\n   [dim]{q['context']}[/dim]")
+        console.print(f"\n[bold cyan]{q['label']}:[/bold cyan] {q['question']}")
+        console.print(f"   [dim]{q['hint']}[/dim]")
+        answer = console.input(f"   → ").strip()
+        if answer.lower() in ("done", "ok", "xong", "skip", ""):
             break
+        answers[q["id"]] = answer
 
-        console.print(f"\n[bold green]🤖 I need some clarification:[/bold green]")
-        for i, q in enumerate(questions_list[:5], 1):
-            console.print(f"   {i}. {q}")
+    if not is_problem_defined(answers):
+        console.print(f"\n[bold yellow]⚠️ Problem not fully defined. Using defaults...[/bold yellow]")
+        answers.setdefault("what", topic)
+        answers.setdefault("why", "general research")
+        answers.setdefault("who", "self-use")
+        answers.setdefault("scope", "no restrictions")
+        answers.setdefault("depth", "overview")
 
-        console.print(f"\n[bold]Options:[/bold]")
-        console.print(f"   [bold]1.[/bold] Answer the questions above")
-        console.print(f"   [bold]2.[/bold] Re-explain your idea (type 're-explain')")
-        console.print(f"   [bold]3.[/bold] Skip clarification (type 'done')")
+    problem_text = format_problem_definition(answers)
+    console.print(f"\n[bold]📝 Problem Definition:[/bold]")
+    console.print(problem_text)
 
-        user_reply = console.input("\n📝 Your response: ").strip()
+    console.print(f"   [dim]({time.time() - stage_start:.1f}s)[/dim]")
 
-        if user_reply.lower() in ("done", "ok", "xong", "skip", "3"):
-            break
+    search_keywords = [topic]
+    if answers.get("scope") and answers["scope"].lower() not in ("no restrictions", "none", "không", "all"):
+        search_keywords.append(answers["scope"])
 
-        if user_reply.lower() in ("re-explain", "re", "2"):
-            new_topic = console.input("\n📝 Re-explain your idea: ").strip()
-            if new_topic:
-                topic = new_topic
-                conversation = [{"role": "user", "content": topic}]
-                console.print(f"\n[bold]Updated topic:[/bold] {topic}")
-                continue
+    session_data = {
+        "topic": topic,
+        "problem_definition": answers,
+    }
+    session_id = kb.start_session(topic, json.dumps(session_data, ensure_ascii=False))
+    console.print(f"\n[green]✅ Session #{session_id} created[/green]\n")
 
-        conversation.append({"role": "assistant", "content": "\n".join(questions_list[:5])})
-        conversation.append({"role": "user", "content": user_reply})
-
-        console.print("[dim]Processing your answers...[/dim]")
-        followup = generate_questions(conversation)
-        console.print(f"\n[green]🤖 {followup}[/green]")
-
-        more = console.input("\n📝 Add more details? (or 'done'): ").strip()
-        if more.lower() in ("done", "ok", "xong", "skip", ""):
-            break
-        conversation.append({"role": "assistant", "content": followup})
-        conversation.append({"role": "user", "content": more})
-
-    console.print("\n[dim]Synthesizing requirements...[/dim]")
-    requirements = synthesize_requirements(conversation)
-
-    if not isinstance(requirements, dict) or requirements.get("parse_error"):
-        requirements = {"topic": topic, "summary": topic, "search_keywords": [topic]}
-
-    console.print(f"\n[bold]📋 Requirements:[/bold]")
-    console.print(f"   Summary: {requirements.get('summary', 'N/A')}")
-    console.print(f"   Keywords: {requirements.get('search_keywords', [topic])}")
-
-    topic_type = detect_topic_type(topic, requirements)
+    topic_type = detect_topic_type(topic)
     console.print(f"   Topic type: {'Code' if topic_type['is_code'] else ''}{' + ' if topic_type['is_code'] and topic_type['is_paper'] else ''}{'Paper' if topic_type['is_paper'] else ''}")
     console.print(f"   Sources: {', '.join(topic_type['sources'])}")
 
-    session_id = kb.start_session(topic, json.dumps(requirements, ensure_ascii=False))
-    console.print(f"\n[green]✅ Session #{session_id} created[/green]\n")
-
+    stage_start = time.time()
     console.print("[bold cyan]📥 Stage 1: Query KB[/bold cyan]")
     existing_insights = kb.get_all_insights()
     if existing_insights:
         console.print(f"   Found {len(existing_insights)} existing insights in KB")
-        kb_result = query_kb(topic, requirements, existing_insights)
+        kb_result = query_kb(topic, {}, existing_insights)
         relevant = kb_result.get("relevant_insights", [])
         gaps = kb_result.get("gaps", [])
         if relevant:
@@ -129,49 +137,86 @@ def research(topic: str = typer.Argument(..., help="Research topic or idea")):
     else:
         console.print("   [dim]KB is empty, skipping query[/dim]")
         gaps = []
+    console.print(f"   [dim]({time.time() - stage_start:.1f}s)[/dim]")
 
+    stage_start = time.time()
     console.print(f"\n[bold cyan]🔍 Stage 2: External Search[/bold cyan]")
-    search_keywords = requirements.get("search_keywords", [topic])
-    if isinstance(search_keywords, str):
-        search_keywords = [search_keywords]
+    console.print(f"[dim]Sources: {', '.join(topic_type['sources'])}[/dim]")
 
     all_results = {s: [] for s in topic_type["sources"]}
     for keyword in search_keywords[:2]:
-        console.print(f"   Searching: {keyword}")
         results = multi_search(keyword, topic_type["sources"], limit=3)
         for source, items in results.get("sources", {}).items():
             all_results[source].extend(items)
 
     github_repos = [r for r in all_results.get("github", []) if r.get("type") != "error"]
     arxiv_papers = [r for r in all_results.get("arxiv", []) if r.get("type") != "error"]
+    web_results = [r for r in all_results.get("web", []) if r.get("type") != "error"]
+    so_results = [r for r in all_results.get("stackoverflow", []) if r.get("type") != "error"]
 
-    console.print(f"   [bold]Found:[/bold] {len(github_repos)} repos, {len(arxiv_papers)} papers")
+    console.print(f"\n   [bold]GitHub:[/bold] {len(github_repos)} repos")
+    for r in github_repos[:3]:
+        stars = f" ⭐{r['stars']}" if r.get("stars") else ""
+        console.print(f"      - {r['title']}{stars}")
 
-    console.print(f"\n[bold cyan]📖 Stage 3: Extract Insights[/bold cyan]")
+    console.print(f"   [bold]Arxiv:[/bold] {len(arxiv_papers)} papers")
+    for r in arxiv_papers[:3]:
+        console.print(f"      - {r['title'][:70]}")
+
+    console.print(f"   [bold]Web:[/bold] {len(web_results)} results")
+    for r in web_results[:3]:
+        console.print(f"      - {r['title'][:70]}")
+
+    console.print(f"   [bold]StackOverflow:[/bold] {len(so_results)} results")
+    for r in so_results[:3]:
+        score = f" (score:{r.get('score', 0)})" if r.get("score") else ""
+        console.print(f"      - {r['title'][:70]}{score}")
+
+    all_sources = github_repos[:2] + arxiv_papers[:2]
+    console.print(f"   [dim]({time.time() - stage_start:.1f}s)[/dim]")
+
+    stage_start = time.time()
+    console.print(f"\n[bold cyan]📖 Stage 3: Extract Insights (parallel)[/bold cyan]")
     all_insights = []
+    sources_to_read = []
 
-    for repo in github_repos[:3]:
-        console.print(f"   Reading {repo['title']}...")
-        try:
-            readme = fetch_github_readme(repo["url"])
+    for repo in github_repos[:2]:
+        sources_to_read.append(("github", repo))
+    for paper in arxiv_papers[:2]:
+        sources_to_read.append(("arxiv", paper))
+
+    def extract_one(source_type, item):
+        if source_type == "github":
+            readme = fetch_github_readme(item["url"])
             if readme:
-                insights = extract_from_github(repo, readme)
+                return extract_from_github(item, readme)
+            return []
+        elif source_type == "arxiv":
+            return extract_from_arxiv(item)
+        elif source_type == "web":
+            return extract_from_web(item)
+        return []
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {}
+        for source_type, item in sources_to_read:
+            name = item["title"][:50]
+            console.print(f"   [dim]Queued: {name}...[/dim]")
+            future = executor.submit(extract_one, source_type, item)
+            futures[future] = name
+
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                insights = future.result()
                 all_insights.extend(insights)
-                console.print(f"      [green]→ {len(insights)} insights[/green]")
-            else:
-                console.print(f"      [yellow]→ No README found[/yellow]")
-        except Exception as e:
-            console.print(f"      [red]→ Error: {e}[/red]")
+                console.print(f"   [green]✓ {name} → {len(insights)} insights[/green]")
+            except Exception as e:
+                console.print(f"   [red]✗ {name} → Error: {e}[/red]")
 
-    for paper in arxiv_papers[:3]:
-        console.print(f"   Reading {paper['title'][:60]}...")
-        try:
-            insights = extract_from_arxiv(paper)
-            all_insights.extend(insights)
-            console.print(f"      [green]→ {len(insights)} insights[/green]")
-        except Exception as e:
-            console.print(f"      [red]→ Error: {e}[/red]")
+    console.print(f"   [dim]({time.time() - stage_start:.1f}s)[/dim]")
 
+    stage_start = time.time()
     console.print(f"\n[bold cyan]💡 Stage 4: Generate Ideas[/bold cyan]")
     if all_insights or gaps:
         ideate_result = generate_ideas(topic, all_insights, gaps)
@@ -184,8 +229,9 @@ def research(topic: str = typer.Argument(..., help="Research topic or idea")):
             console.print("   [dim]No new ideas generated[/dim]")
     else:
         console.print("   [dim]No insights or gaps to generate ideas from[/dim]")
+    console.print(f"   [dim]({time.time() - stage_start:.1f}s)[/dim]")
 
-    console.print(f"\n[bold yellow]📊 Stage 5: Review[/bold yellow]")
+    console.print(f"\n[bold yellow]📊 Stage 5: Review & Discuss[/bold yellow]")
     console.print(f"   Total insights: {len(all_insights)}")
     maturity_counts = {}
     for insight in all_insights:
@@ -194,22 +240,57 @@ def research(topic: str = typer.Argument(..., help="Research topic or idea")):
     for m, c in sorted(maturity_counts.items()):
         console.print(f"   {m}: {c} insights")
 
-    console.print(f"\n[bold cyan]💾 Stage 6: Save[/bold cyan]")
     if all_insights:
+        console.print(f"\n[bold]📝 Detailed Insights:[/bold]")
         for i, insight in enumerate(all_insights, 1):
-            console.print(f"   {i}. [{insight['maturity']}] [{insight['type']}] {insight['title']}")
+            console.print(f"\n   [bold cyan]{i}. [{insight['maturity']}] [{insight['type']}] {insight['title']}[/bold cyan]")
+            if insight.get("main_idea"):
+                console.print(f"      Idea: {insight['main_idea'][:120]}")
+            if insight.get("source_url"):
+                console.print(f"      Source: {insight['source_url'][:80]}")
 
-        if Confirm.ask("\n💾 Save insights to Knowledge Base?"):
+        console.print(f"\n[bold green]🤖 Summary:[/bold green]")
+        console.print(f"   Found {len(all_insights)} insights from {len(sources_to_read)} sources.")
+        console.print(f"   Topics covered: {', '.join(insight.get('title', '')[:30] for insight in all_insights[:3])}...")
+
+        console.print(f"\n[bold]What do you want to do?[/bold]")
+        console.print(f"   [bold]1.[/bold] Save all insights to KB")
+        console.print(f"   [bold]2.[/bold] Save only selected insights (type numbers: 1,3,5)")
+        console.print(f"   [bold]3.[/bold] Discard and go back to search")
+        console.print(f"   [bold]4.[/bold] Search more on a specific subtopic")
+
+        action = console.input("\n📝 Your choice: ").strip()
+
+        if action == "4":
+            subtopic = console.input("📝 What subtopic to search? ").strip()
+            if subtopic:
+                console.print(f"[dim]Note: Subtopic search will be in the next session. For now, proceeding with current insights.[/dim]")
+
+        if action == "3":
+            console.print("   [dim]Discarded. You can run research again with refined keywords.[/dim]")
+        elif action == "2":
+            selected = console.input("📝 Enter insight numbers (comma-separated, e.g. 1,3,5): ").strip()
+            try:
+                indices = [int(x.strip()) - 1 for x in selected.split(",")]
+                selected_insights = [all_insights[i] for i in indices if 0 <= i < len(all_insights)]
+                if selected_insights:
+                    saved_ids = kb.save_insights(selected_insights)
+                    console.print(f"   [green]✅ {len(saved_ids)} selected insights saved[/green]")
+                else:
+                    console.print("   [yellow]No valid insights selected[/yellow]")
+            except (ValueError, IndexError):
+                console.print("   [red]Invalid input, nothing saved[/red]")
+        elif action == "1":
             saved_ids = kb.save_insights(all_insights)
             console.print(f"   [green]✅ {len(saved_ids)} insights saved[/green]")
         else:
-            console.print("   [dim]⏭️ Skipped[/dim]")
+            console.print("   [dim]No action taken[/dim]")
 
-    kb.finish_session(json.dumps(requirements, ensure_ascii=False))
+    kb.finish_session(json.dumps(session_data, ensure_ascii=False))
 
     elapsed = time.time() - start_time
     console.print(f"\n[bold]📊 Session Summary[/bold]")
-    console.print(f"   Sources: {len(github_repos)} repos + {len(arxiv_papers)} papers")
+    console.print(f"   Sources: {len(github_repos)} repos + {len(arxiv_papers)} papers + {len(web_results)} web + {len(so_results)} SO")
     console.print(f"   Insights: {len(all_insights)}")
     console.print(f"   Maturity: {maturity_counts}")
     console.print(f"   Time: {elapsed:.1f}s")

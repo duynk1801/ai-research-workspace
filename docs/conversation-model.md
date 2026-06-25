@@ -7,7 +7,7 @@ User asks a question → I research existing repos → extract applicable knowle
 ## Session 1: Research Existing Solutions
 
 ### Question
-"Tôi muốn biết những repo nào đã研究 về AI Research Workspace, knowledge management, và research automation"
+"Tôi muốn biết những repo nào đã nghiên cứu về AI Research Workspace, knowledge management, và research automation"
 
 ### Sources Analyzed
 
@@ -51,10 +51,46 @@ User asks a question → I research existing repos → extract applicable knowle
 |---------|--------|-----------|
 | 3-Layer KB | BITE | evidence/analysis/ideas directories |
 | Structured Extraction | BITE | Extract main_idea, strengths, limitations, gaps |
-| Pipeline Stages | BITE | clarify → search → extract → query → ideate → review → save |
+| Pipeline Stages | BITE | 7-stage research pipeline |
 | Idea Maturity | BITE | Score insights S1/S2/S3 |
-| Agent System | Khoj | Research Agent with persona + tools |
-| Semantic Search | Khoj | Embeddings-based KB search (planned) |
+| Problem Definition | Design Thinking + CPS | 5-factor problem scoping (WHAT/WHY/WHO/SCOPE/DEPTH) |
+| Parallel Extraction | New | ThreadPoolExecutor for concurrent LLM calls |
+| Topic-aware Routing | New | Keyword matching → source selection |
+
+---
+
+## Session 2: Problem Definition Research
+
+### Question
+"Như nào là đủ định hình bài toán để có thể bắt đầu tìm hiểu sâu?"
+
+### Sources Analyzed
+
+#### BITE Research Workflow
+- Before deep search, need: Topic, Domain bottleneck, Gap, Decision rules
+- Each stage has clear input/output contract
+
+#### deep-research (dzhng, 19,191 stars)
+- Before deep research: Research question, Scope, Success criteria
+
+#### CPS Framework (Arxiv)
+- Creative Problem Solving: Problem identification → Formulation → Solution generation
+
+### Key Finding: 5-Factor Problem Definition
+
+```
+WHAT:   Bài toán cụ thể là gì?
+WHY:    Tại sao cần? Vấn đề hiện tại?
+WHO:    Đối tượng sử dụng?
+SCOPE:  Giới hạn? Bao gồm/loại trừ gì?
+DEPTH:  Cần sâu đến đâu? (overview/deep/novel)
+```
+
+### Applied: Stage 0 of Pipeline
+- Quick search (1.5s, no LLM) → show what exists
+- Pattern matching → detect domain, languages, existing tools
+- Ask 5 dynamic questions (1 per factor)
+- User answers → problem defined → start deep search
 
 ---
 
@@ -67,7 +103,7 @@ User asks a question → I research existing repos → extract applicable knowle
 3. **I analyze:** Architecture, key patterns, code structure
 4. **I extract:** Patterns we can apply
 5. **I apply:** To our codebase
-6. **I document:** In this note file
+6. **I document:** In this note file + technical-docs.md
 
 ### Fields to Research Next
 
@@ -77,3 +113,5 @@ User asks a question → I research existing repos → extract applicable knowle
 - [ ] OpenClaw module architecture
 - [ ] Browser extension patterns
 - [ ] Mobile app architecture (React Native/Flutter)
+- [ ] Semantic search with embeddings
+- [ ] Batch extraction (gộp nhiều sources vào 1 LLM call)

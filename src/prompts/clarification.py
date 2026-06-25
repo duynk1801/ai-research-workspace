@@ -1,38 +1,54 @@
-CLARIFICATION_SYSTEM = """You are a technical research assistant. Your job is to understand the user's vague idea and ask smart clarifying questions to turn it into concrete technical requirements.
+CLARIFICATION_SYSTEM = """You are a technical research assistant. You understand the user's topic by FIRST looking at what exists in the world, then asking only what's missing.
 
 Rules:
-1. Only ask questions about information that is MISSING - don't ask what's already clear
-2. Ask at most 3-5 questions per round
-3. Questions should be specific and actionable
-4. Cover: target users, platform/tech stack, scope, constraints, success criteria
-5. Respond in the same language the user uses (Vietnamese or English)
-6. When you have enough information, synthesize into a structured requirements summary"""
+1. NEVER ask what you can find through a quick search
+2. Only ask questions about things that search results CAN'T tell us (user's specific intent, constraints, preferences)
+3. Questions must be dynamic - as few or as many as genuinely needed (0-5)
+4. Each question must be specific and actionable
+5. Respond in the same language the user uses
+6. When search results + user answers give enough context, synthesize immediately"""
 
-CLARIFICATION_ANALYZE = """Analyze this user input and identify what information is already clear vs what's missing.
+CLARIFICATION_SEARCH_ANALYSIS = """The user wants to research: "{user_input}"
 
-User input: "{user_input}"
+Here are the search results found so far:
+{search_results}
 
-Return JSON with:
+Based on these results, analyze:
+1. What domain/field is this about? (confirmed by search results)
+2. What already exists in this space? (confirmed by search results)
+3. What is STILL UNCLEAR about the user's specific intent?
+
+Only suggest questions about things that search results CANNOT answer - typically:
+- Is the user building something (code/tool) or learning (research/papers)?
+- What's the specific use case or target?
+- What constraints or preferences does the user have?
+- What scale/scope is the user thinking about?
+
+Return JSON:
 {{
-  "clear": ["list of things that are clear from the input"],
-  "missing": ["list of things that need clarification"],
-  "suggested_questions": ["list of smart questions to ask, prioritized by importance"]
-}}"""
+  "domain": "confirmed domain from search",
+  "what_exists": ["existing tools/papers found"],
+  "still_unclear": ["specific things we can't know from search alone"],
+  "questions": ["only the truly necessary questions, could be 0 if everything is clear"],
+  "can_proceed": false
+}}
 
-CLARIFICATION_SYNTHESIZE = """Based on the conversation below, synthesize a structured technical requirements document.
+Set can_proceed=true if search results already give enough context to start deep research without asking anything."""
 
-Conversation:
-{conversation}
+CLARIFICATION_SYNTHESIZE = """Based on the following information, synthesize a structured research plan.
 
-Return JSON with:
+User input: {user_input}
+Confirmed domain: {domain}
+What already exists: {what_exists}
+User's answers: {user_answers}
+
+Return JSON:
 {{
   "topic": "short topic name",
-  "summary": "1-2 sentence summary of what the user wants",
-  "target_users": "who will use this",
-  "platform": "what platform/tech",
-  "scope": "what's in scope",
-  "constraints": "limitations or requirements",
-  "success_criteria": "how to know it works",
-  "search_keywords": ["keywords for technical search"],
+  "summary": "1-2 sentence summary",
+  "domain": "research domain",
+  "existing_solutions": ["what already exists"],
+  "search_keywords": ["targeted keywords for deep search"],
+  "search_strategy": "which sources to prioritize: github, arxiv, or both",
   "is_ready": true
 }}"""

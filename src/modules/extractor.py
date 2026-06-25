@@ -107,6 +107,42 @@ def extract_from_arxiv(paper: dict) -> list[dict]:
     return insights
 
 
+def extract_from_web(web_result: dict) -> list[dict]:
+    content = web_result.get("description", "")
+    if not content or len(content.strip()) < 20:
+        return []
+
+    try:
+        result = extract_insights(
+            content=content,
+            source_title=web_result["title"],
+            source_type="web",
+            source_url=web_result.get("url", "")
+        )
+    except Exception as e:
+        logger.error(f"Web extraction failed for {web_result['title']}: {e}")
+        return []
+
+    insights = []
+    for item in result.get("insights", []):
+        if isinstance(item, dict) and item.get("title"):
+            insights.append({
+                "type": item.get("type", "IDEA"),
+                "title": item.get("title", ""),
+                "main_idea": item.get("main_idea", ""),
+                "core_approach": item.get("core_approach", ""),
+                "strengths": item.get("strengths", []),
+                "limitations": item.get("limitations", []),
+                "gaps": item.get("gaps", []),
+                "relevance": item.get("relevance", ""),
+                "maturity": item.get("maturity", "S1"),
+                "tags": item.get("tags", []),
+                "source_url": web_result.get("url", ""),
+                "source_type": "web",
+            })
+    return insights
+
+
 def query_kb(topic: str, requirements: dict, existing_insights: list[dict]) -> dict:
     insights_text = "\n".join([
         f"- [{i.get('id')}] {i.get('title')}: {i.get('main_idea', '')}"

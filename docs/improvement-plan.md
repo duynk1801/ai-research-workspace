@@ -73,16 +73,22 @@ S3: Actionable (has clear next steps)
 
 ## Implementation Priority
 
-### Phase 1: Core Improvements (This Week)
-1. [ ] Restructure KB to 3-layer (evidence/analysis/ideas)
-2. [ ] Update extraction schema
-3. [ ] Add query stage (search KB before external search)
-4. [ ] Add idea maturity scoring
+### Phase 1: Core Improvements (COMPLETED)
+1. [x] Restructure KB to 3-layer (evidence/analysis/ideas)
+2. [x] Update extraction schema (main_idea, strengths, limitations, gaps)
+3. [x] Add query stage (search KB before external search)
+4. [x] Add idea maturity scoring (S1/S2/S3)
 
-### Phase 2: Pipeline Enhancement (Next Week)
-5. [ ] Add ideate stage (generate ideas from KB)
-6. [ ] Add review stage (quality check)
-7. [ ] Create Research Agent class
+### Phase 2: Pipeline Enhancement (COMPLETED)
+5. [x] Add ideate stage (generate ideas from KB)
+6. [x] Add review stage (maturity breakdown)
+7. [x] Parallel extraction with ThreadPoolExecutor
+8. [x] 5-factor problem definition (WHAT/WHY/WHO/SCOPE/DEPTH)
+9. [x] Quick search Stage 0 (no LLM, pattern matching)
+
+### Phase 3: Advanced Features (Month 2)
+10. [ ] Batch extraction (gộp sources vào 1 LLM call)
+11. [ ] Add embeddings + semantic search
 
 ### Phase 3: Advanced Features (Month 2)
 8. [ ] Add embeddings + semantic search
