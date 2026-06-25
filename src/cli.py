@@ -232,59 +232,91 @@ def research(topic: str = typer.Argument(..., help="Research topic or idea")):
     console.print(f"   [dim]({time.time() - stage_start:.1f}s)[/dim]")
 
     console.print(f"\n[bold yellow]📊 Stage 5: Review & Discuss[/bold yellow]")
-    console.print(f"   Total insights: {len(all_insights)}")
+
+    if web_results:
+        console.print(f"\n[bold]🌐 Web Summary:[/bold]")
+        for i, r in enumerate(web_results[:5], 1):
+            console.print(f"   {i}. [bold]{r['title'][:70]}[/bold]")
+            if r.get("description"):
+                console.print(f"      {r['description'][:120]}")
+            console.print(f"      [dim]{r['url'][:80]}[/dim]")
+
     maturity_counts = {}
     for insight in all_insights:
         m = insight.get("maturity", "S1")
         maturity_counts[m] = maturity_counts.get(m, 0) + 1
-    for m, c in sorted(maturity_counts.items()):
-        console.print(f"   {m}: {c} insights")
 
     if all_insights:
-        console.print(f"\n[bold]📝 Detailed Insights:[/bold]")
+        console.print(f"\n[bold]💡 Insights from sources ({len(all_insights)} total):[/bold]")
         for i, insight in enumerate(all_insights, 1):
             console.print(f"\n   [bold cyan]{i}. [{insight['maturity']}] [{insight['type']}] {insight['title']}[/bold cyan]")
             if insight.get("main_idea"):
-                console.print(f"      Idea: {insight['main_idea'][:120]}")
+                console.print(f"      {insight['main_idea'][:120]}")
             if insight.get("source_url"):
-                console.print(f"      Source: {insight['source_url'][:80]}")
+                console.print(f"      [dim]{insight['source_url'][:80]}[/dim]")
 
-        console.print(f"\n[bold green]🤖 Summary:[/bold green]")
-        console.print(f"   Found {len(all_insights)} insights from {len(sources_to_read)} sources.")
-        console.print(f"   Topics covered: {', '.join(insight.get('title', '')[:30] for insight in all_insights[:3])}...")
+        for m, c in sorted(maturity_counts.items()):
+            console.print(f"   {m}: {c} insights")
 
         console.print(f"\n[bold]What do you want to do?[/bold]")
         console.print(f"   [bold]1.[/bold] Save all insights to KB")
-        console.print(f"   [bold]2.[/bold] Save only selected insights (type numbers: 1,3,5)")
-        console.print(f"   [bold]3.[/bold] Discard and go back to search")
-        console.print(f"   [bold]4.[/bold] Search more on a specific subtopic")
+        console.print(f"   [bold]2.[/bold] Save only selected (type: 1,3,5)")
+        console.print(f"   [bold]3.[/bold] Discard")
+        console.print(f"   [bold]4.[/bold] Search more on a subtopic")
 
         action = console.input("\n📝 Your choice: ").strip()
 
         if action == "4":
-            subtopic = console.input("📝 What subtopic to search? ").strip()
+            subtopic = console.input("📝 What subtopic? ").strip()
             if subtopic:
-                console.print(f"[dim]Note: Subtopic search will be in the next session. For now, proceeding with current insights.[/dim]")
-
-        if action == "3":
-            console.print("   [dim]Discarded. You can run research again with refined keywords.[/dim]")
+                console.print(f"[dim]Run: python -m src.cli research \"{subtopic}\"[/dim]")
+        elif action == "3":
+            console.print("   [dim]Discarded.[/dim]")
         elif action == "2":
-            selected = console.input("📝 Enter insight numbers (comma-separated, e.g. 1,3,5): ").strip()
+            selected = console.input("📝 Numbers (e.g. 1,3,5): ").strip()
             try:
                 indices = [int(x.strip()) - 1 for x in selected.split(",")]
                 selected_insights = [all_insights[i] for i in indices if 0 <= i < len(all_insights)]
                 if selected_insights:
                     saved_ids = kb.save_insights(selected_insights)
-                    console.print(f"   [green]✅ {len(saved_ids)} selected insights saved[/green]")
-                else:
-                    console.print("   [yellow]No valid insights selected[/yellow]")
+                    console.print(f"   [green]✅ {len(saved_ids)} saved[/green]")
             except (ValueError, IndexError):
-                console.print("   [red]Invalid input, nothing saved[/red]")
+                console.print("   [red]Invalid input[/red]")
         elif action == "1":
             saved_ids = kb.save_insights(all_insights)
-            console.print(f"   [green]✅ {len(saved_ids)} insights saved[/green]")
+            console.print(f"   [green]✅ {len(saved_ids)} saved[/green]")
+    else:
+        console.print(f"\n[bold yellow]⚠️ No structured insights extracted from sources.[/bold yellow]")
+        console.print(f"   GitHub repos and Arxiv papers may not be relevant to this topic.")
+        console.print(f"   Web results above contain the most useful information.\n")
+
+        console.print(f"[bold]What do you want to do?[/bold]")
+        console.print(f"   [bold]1.[/bold] Search with different keywords")
+        console.print(f"   [bold]2.[/bold] Save web results as reference to KB")
+        console.print(f"   [bold]3.[/bold] End session")
+
+        action = console.input("\n📝 Your choice: ").strip()
+
+        if action == "1":
+            new_keywords = console.input("📝 New keywords: ").strip()
+            if new_keywords:
+                console.print(f"\n[dim]Run: python -m src.cli research \"{new_keywords}\"[/dim]")
+        elif action == "2":
+            web_insights = []
+            for r in web_results[:5]:
+                web_insights.append({
+                    "type": "IDEA",
+                    "title": r["title"],
+                    "main_idea": r.get("description", "")[:200],
+                    "maturity": "S1",
+                    "tags": ["web-reference"],
+                    "source_url": r.get("url", ""),
+                    "source_type": "web",
+                })
+            saved_ids = kb.save_insights(web_insights)
+            console.print(f"   [green]✅ {len(saved_ids)} web references saved[/green]")
         else:
-            console.print("   [dim]No action taken[/dim]")
+            console.print("   [dim]Session ended.[/dim]")
 
     kb.finish_session(json.dumps(session_data, ensure_ascii=False))
 

@@ -130,7 +130,11 @@ def search_stackoverflow(query: str, limit: int = 3) -> list[dict]:
 
 
 def filter_relevant(results: list[dict], topic: str) -> list[dict]:
-    topic_words = set(topic.lower().split())
+    stop_words = {"the", "a", "an", "is", "are", "was", "were", "for", "and", "or",
+                  "of", "to", "in", "on", "with", "by", "from", "at", "as", "be",
+                  "của", "và", "cho", "các", "là", "có", "trong", "với", "từ"}
+
+    topic_words = set(topic.lower().split()) - stop_words
     filtered = []
 
     for r in results:
@@ -141,7 +145,15 @@ def filter_relevant(results: list[dict], topic: str) -> list[dict]:
         text_words = set(text.split())
 
         overlap = len(topic_words & text_words)
-        if overlap >= 1 or r.get("stars", 0) > 500:
+
+        if len(topic_words) <= 2:
+            required_overlap = 1
+        elif len(topic_words) <= 4:
+            required_overlap = 2
+        else:
+            required_overlap = len(topic_words) // 2
+
+        if overlap >= required_overlap:
             filtered.append(r)
 
     return filtered
