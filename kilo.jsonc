@@ -1,0 +1,8 @@
+{
+  "apiProvider": "openai-compatible",
+  "openAiCompatible": {
+    "baseUrl": "https://token-plan-cn.xiaomimimo.com/v1",
+    "apiKey": "tp-seey5v9s0j8yx2icpz57oz3dhdq9o3z4ocka7m4h182jowea",  // ⚠️ Dán API KEY ĐẦY ĐỦ của bạn
+    "modelId": "mimo-v2.5-pro"
+  }
+}
